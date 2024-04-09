@@ -54,6 +54,7 @@ install -o root -m 0755 queuemetre /usr/local/sbin/queuemetre
 ```
 $ /bin/cp ./queuemetre /path/to/somewhere/
 $ chmod a+x /path/to/somewhere/queuemetre
+```
 
 
 Author
