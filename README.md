@@ -20,7 +20,7 @@ EXAMPLE
 
 ### Postfix
 ```
-[root@mailout ~]# /tmp/queuemetre
+[root@mailout ~]# /usr/local/sbin/queuemetre
       Date     Time    Total Incoming   Active Deferred     Hold Bounced  Proc:d/c  Conn:L/R   Load   MB:vsz/rss
 2018-02-02 18:30:22      135        0       80       55        0       0     2/121     0/124   0.22   22241/2101
 2018-02-02 18:31:22      127        0      125        2        0       0     2/122     0/127   0.25   22241/2104
@@ -33,7 +33,7 @@ EXAMPLE
 
 ### OpenSMTPD
 ```
-[root@p1 ~]# /tmp/queuemetre
+[root@p1 ~]# /usr/local/sbin/queuemetre
       Date     Time    Total Incoming    Queue    Purge Offline  Proc:d/q  Conn:L/R   Load   MB:vsz/rss
 2018-02-02 18:30:22        5        1        4        0       0       5/1       1/1   0.00       250/21
 2018-02-02 18:31:22        5        1        4        0       0       5/1       1/1   0.00       250/21
