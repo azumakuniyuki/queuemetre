@@ -1,0 +1,560 @@
+#!/usr/bin/env perl
+=head1 DESCRIPTION
+    queuemetre - A command for displaying the number of email queues like the iostat(8)
+
+=head1 USAGE
+    Try --help option
+=cut
+
+#   ____ _     ___ 
+#  / ___| |   |_ _|
+# | |   | |    | | 
+# | |___| |___ | | 
+#  \____|_____|___|
+# -------------------------------------------------------------------------------------------------
+package CLI;
+use strict;
+use warnings;
+use v5.10;
+use File::Basename qw(basename);
+use Time::Piece;
+
+sub new {
+    my $class = shift;
+    my $argvs = { @_ };
+    my $param = {};
+    my $thing = undef;
+
+    return $class if ref $class eq __PACKAGE__;
+    $param = {
+        'started' => Time::Piece->new,
+        'pidfile' => $argvs->{'pidfile'} || '',
+        'verbose' => $argvs->{'verbose'} || 0,
+        'command' => $argvs->{'command'} ? $argvs->{'command'} : $0,
+        'runmode' => $argvs->{'runmode'} || 1,
+        'stream'  => {
+            'stdin'  => -t STDIN  ? 1 : 0,
+            'stdout' => -t STDOUT ? 1 : 0,
+            'stderr' => -t STDERR ? 1 : 0,
+        },
+    };
+    $thing = bless $param, __PACKAGE__;
+    return $thing;
+}
+
+sub stdin  { shift->{'stream'}->{'stdin'}  }
+sub stdout { shift->{'stream'}->{'stdout'} }
+sub stderr { shift->{'stream'}->{'stderr'} }
+sub r { my($x, $y) = @_; $x->{'runmode'} = $y if defined $y; return $x->{'runmode'}; }
+sub v { my($x, $y) = @_; $x->{'verbose'} = $y if defined $y; return $x->{'verbose'}; }
+sub e {
+    # @Description  Print error message and exit
+    # @Param <mesg> (String) Error message text
+    # @Param <bool> (Boolean) continue or not
+    # @Return       1 or exit(1)
+    my $self = shift;
+    my $mesg = shift || return 0;
+    my $cont = shift || 0;
+
+    if( $self->stderr ) {
+        printf(STDERR " * error0: %s\n", $mesg);
+        printf(STDERR " * error0: ******** ABORT ********\n");
+    }
+    $cont ? return 1 : exit(1);
+}
+
+sub p {
+    # @Description  Print debug message
+    # @Param <mesg> (String) Debug message text
+    # @Param <level>(Integer) Debug level
+    # @Return       0 or 1
+    my $self = shift;
+    my $mesg = shift || return 0;
+    my $rung = shift || 1;
+
+    return 0 unless $self->stderr;
+    return 0 unless $self->v;
+    return 0 unless $self->v >= $rung;
+
+    chomp $mesg; printf(STDERR " * debug%d: %s\n", $rung, $mesg);
+    return 1;
+}
+
+1;
+
+#                  _       
+#  _ __ ___   __ _(_)_ __  
+# | '_ ` _ \ / _` | | '_ \ 
+# | | | | | | (_| | | | | |
+# |_| |_| |_|\__,_|_|_| |_|
+# -------------------------------------------------------------------------------------------------
+package main;
+use strict;
+use warnings;
+use Getopt::Long qw/:config posix_default no_ignore_case bundling auto_help/;
+use File::Basename qw/basename/;
+
+my $Version = '1.0.0';
+my $Setting = {};
+my $Default = { 'wait' => 60 };
+my $Options = {
+    'exec' => (1 << 0),
+    'once' => (1 << 2),
+};
+my $Command = CLI->new('command' => join(' ', $0, @ARGV));
+   $Command->r(parseoptions());
+
+if( $Command->r & $Options->{'exec'} ) {
+    # 1. Detect an MTA running on this machine
+    my $smtpdaemon = detectdaemon() || $Command->e('Failed to detect an SMTPd');
+    my $executable = 0;
+    my $timestamp0 = undef;
+    my $redirectto = '2> /dev/null';
+    my $thecommand = '';
+    my $legendtext = '';
+    my $mailqueues = 0; # The number of email queues
+    my $havelooped = 0;
+    my $queuecount = {};
+    my $othercount = {
+        'proc' => { 'daemon' => 0, 'client' => 0 },
+        'sock' => { 'daemon' => 0, 'client' => 0 },
+        'mems' => { 'vsz'    => 0, 'rss'    => 0 },
+        'load' => 0,
+    };
+
+    my $processcmd = '/usr/bin/ps';
+    $Command->e('/usr/bin/ps is not available')                unless -x $processcmd;
+
+    # Count the number of queues
+    if( $smtpdaemon eq 'sendmail' ) {
+        #  ____                 _                 _ _ 
+        # / ___|  ___ _ __   __| |_ __ ___   __ _(_) |
+        # \___ \ / _ \ '_ \ / _` | '_ ` _ \ / _` | | |
+        #  ___) |  __/ | | | (_| | | | | | | (_| | | |
+        # |____/ \___|_| |_|\__,_|_| |_| |_|\__,_|_|_|
+        my $countusing = '/usr/sbin/sendmail';
+        my $commandarg = '-bp -OMaxQueueRunSize=1 -OQueueSortOrder=none';
+        my $qidpattern = qr/\A([0-9A-Za-z]{10,})/;
+        my @queueindex = (qw|mta msa deferred lost quarantined|);
+        my $queueprint = '';
+
+        SPOOL: while(1) {
+            # Check /usr/sbin/sendmail command
+            last unless -x $countusing;
+            $executable = 1;
+            last;
+        }
+        $Command->e(sprintf("Cannot execute %s", $countusing)) unless $executable;
+
+        while(1) {
+            # Print values on the terminal continuously stepping by 60 seconds when STDOUT and
+            # STDERR are available.
+            if( length($legendtext) == 0 && $Command->stderr ) {
+                # Legend text for values of Postfix
+                $legendtext .= sprintf("%10s %8s ",    'Date', 'Time');
+                $legendtext .= sprintf("%8s %8s %8s ", 'Total', 'MTA', 'MSA');
+                $legendtext .= sprintf("%8s %5s %6s ", 'Deferred', 'Lost', 'Quarantined');
+                $legendtext .= sprintf("%9s %9s %6s ", 'Proc:d/c', 'Conn:L/R', 'Load');
+                $legendtext .= sprintf("%12s",         'MB:vsz/rss');
+                print STDERR $legendtext."\n";
+            }
+
+            # Initialize each value for the loop
+            $timestamp0 = Time::Piece->new;
+            $mailqueues = 0;
+            $queueprint = '';
+            $othercount->{'mems'}->{'vsz'} = 0;
+            $othercount->{'mems'}->{'rss'} = 0;
+            $othercount->{'proc'}->{'daemon'} = 0;
+            $othercount->{'proc'}->{'client'} = 0;
+            map { $queuecount->{ $_ } = 0 } @queueindex;
+            $havelooped++;
+
+            # Count the number of MTA queues
+            $queueprint = qx($countusing -Am $commandarg | grep -E '^[0-9A-Za-z]');
+            for my $e ( split("\n", $queueprint) ) {
+                # Read each line returned from mailq command
+                # /var/spool/queues/q.0 is empty
+                #                 /var/spool/queues/q.1 (1 request)
+                # -----Q-ID----- --Size-- -----Q-Time----- ------------Sender/Recipient-----------
+                # v86CB6kd009835-      18 Tue Sep  6 21:11 <ak@neko.example.jp>
+                #                  (Deferred: Connection refused by nyaaan.example.jp.)
+                #                                          <neko@nyaaan.example.jp>
+                #                 /var/spool/queues/q.2 (1 request)
+                my $q = $1 if $e =~ $qidpattern || next;
+                rindex($q, '-') > 0 ? $queuecount->{'deferred'}++ : $queuecount->{'mta'}++;
+                $mailqueues++;
+            }
+
+            # Count the number of MSA queues
+            $queueprint = qx($countusing -qL $commandarg | grep -E '[0-9A-Za-z]');
+            for my $e ( split("\n", $queueprint) ) {
+                # Read each line returned from mailq command
+                next unless $e =~ $qidpattern;
+                $queuecount->{'lost'}++;
+            }
+
+            # Count the number of qurantined queues
+            $queueprint = qx($countusing -qQ $commandarg | grep -E '[0-9A-Za-z]');
+            for my $e ( split("\n", $queueprint) ) {
+                # Read each line returned from mailq command
+                next unless $e =~ $qidpattern;
+                $queuecount->{'quarantined'}++;
+            }
+
+            # Count the number of processes, memory
+            for my $e ( split "\n", qx($processcmd xh -u root -O vsz,rss | grep sendmail) ) {
+                # Read each line of ps(1) command
+                chomp $e; $e =~ y/ / /s;
+                my $v = [split(' ', $e)];
+                $othercount->{'mems'}->{'vsz'} += int $v->[1];
+                $othercount->{'mems'}->{'rss'} += int $v->[2];
+
+                next unless index($v->[6], 'sendmail:') == 0;
+                $v->[7] =~ /\A(?:accepting|server)/
+                    ? $othercount->{'proc'}->{'daemon'} += 1
+                    : $othercount->{'proc'}->{'client'} += 1;
+            }
+
+            # Count the number of connections, Get the value of the current load average
+            $othercount->{'sock'}->{'daemon'} = v4connection('daemon');
+            $othercount->{'sock'}->{'client'} = v4connection('client');
+            $othercount->{'load'} = loadaverages();
+
+            #       Date     Time    Total      MTA      MSA Deferred  Lost Quarantined  Proc:d/c  Conn:L/R   Load   MB:vsz/rss
+            # 2018-02-02 18:30:22       22       20        0        2     0           1       2/1       0/1   0.02        269/2
+            printf("%s %s ",       $timestamp0->ymd('-'), $timestamp0->hms(':'));
+            printf("%8d %8d %8d ", $mailqueues, $queuecount->{'mta'}, $queuecount->{'msa'});
+            printf("%8d %5d %11d ",$queuecount->{'deferred'}, $queuecount->{'lost'}, $queuecount->{'quarantined'});
+            printf("%9s ",   $othercount->{'proc'}->{'daemon'}.'/'.$othercount->{'proc'}->{'client'});
+            printf("%9s ",   $othercount->{'sock'}->{'daemon'}.'/'.$othercount->{'sock'}->{'client'});
+            printf("%6.2f ", $othercount->{'load'});
+            printf("%12s",   int($othercount->{'mems'}->{'vsz'} / 1024).'/'.int($othercount->{'mems'}->{'rss'} / 1024));
+            printf("\n");
+
+            last     if $Command->r & $Options->{'once'};
+            last unless $Command->stdout;
+            sleep($Setting->{'wait'});
+
+            next unless length $legendtext;
+            next unless $Command->stderr;
+            next unless $havelooped % 30 == 0;
+            print STDERR $legendtext."\n";
+        }
+        exit(0);
+    }
+
+    if( $smtpdaemon eq 'postfix' ) {
+        #  ____           _    __ _      
+        # |  _ \ ___  ___| |_ / _(_)_  __
+        # | |_) / _ \/ __| __| |_| \ \/ /
+        # |  __/ (_) \__ \ |_|  _| |>  < 
+        # |_|   \___/|___/\__|_| |_/_/\_\
+        # http://www.postfix-jp.info/jhtml/big-picture.html
+        my $countusing = '/bin/ls -1f ';
+        my $daemonhome = '/var/spool/postfix';
+        my @queueindex = (qw|incoming active deferred bounce hold|);
+
+        SPOOL: while(1) {
+            # Check the spool directory
+            last unless -d $daemonhome;
+            last unless -r $daemonhome;
+            last unless -x $daemonhome;
+
+            for my $e ( @queueindex ) {
+                # Check each queue directory
+                last SPOOL unless -d $daemonhome.'/'.$e;
+                last SPOOL unless -r $daemonhome.'/'.$e;
+                last SPOOL unless -x $daemonhome.'/'.$e;
+            }
+            $executable = 1;
+            last;
+        }
+        $Command->e(sprintf("Cannot read %s", $daemonhome)) unless $executable;
+
+        while(1) {
+            # Print values on the terminal continuously stepping by 60 seconds when STDOUT and
+            # STDERR are available.
+            if( length($legendtext) == 0 && $Command->stderr ) {
+                # Legend text for values of Postfix
+                $legendtext .= sprintf("%10s %8s ",    'Date', 'Time');
+                $legendtext .= sprintf("%8s %8s %8s ", 'Total', 'Incoming', 'Active');
+                $legendtext .= sprintf("%8s %8s %7s ", 'Deferred', 'Hold', 'Bounced');
+                $legendtext .= sprintf("%9s %9s %6s ", 'Proc:d/c', 'Conn:L/R', 'Load');
+                $legendtext .= sprintf("%12s",         'MB:vsz/rss');
+                print STDERR $legendtext."\n";
+            }
+
+            # Initialize each value for the loop
+            $timestamp0 = Time::Piece->new;
+            $mailqueues = 0;
+            $othercount->{'mems'}->{'vsz'} = 0;
+            $othercount->{'mems'}->{'rss'} = 0;
+            $othercount->{'proc'}->{'daemon'} = 0;
+            $othercount->{'proc'}->{'client'} = 0;
+            $havelooped++;
+
+            for my $e ( @queueindex ) {
+                # Count the number of files in each queue directory
+                if( $e eq 'deferred' ) {
+                    # /var/spool/postfix/deferred have sub directories
+                    $thecommand = sprintf("find %s/%s -type f | wc -l %s", $daemonhome, $e, $redirectto);
+
+                } else {
+                    # Directories except /var/spool/postfix/deferred have no sub directories
+                    $thecommand = sprintf("%s %s/%s | wc -l %s", $countusing, $daemonhome, $e, $redirectto);
+                }
+                my $v = int qx|$thecommand| || 0; $v -= 2 if $v > 1;
+
+                $mailqueues += $v if $e =~ /\A(?:incoming|active|deferred)/;
+                $queuecount->{ $e } = $v;
+            }
+
+            # Count the number of processes, memory
+            for my $e ( split "\n", qx|$processcmd h -u postfix -O vsz,rss| ) {
+                # Read each line of ps(1) command
+                chomp $e; $e =~ y/ / /s;
+                my $v = [split(' ', $e)];
+                $othercount->{'mems'}->{'vsz'}    += int $v->[1];
+                $othercount->{'mems'}->{'rss'}    += int $v->[2];
+                $othercount->{'proc'}->{'daemon'} += 1 if $v->[6] =~ /\Asmtpd/;
+                $othercount->{'proc'}->{'client'} += 1 if $v->[6] =~ /\Asmtp$/;
+            }
+
+            # Count the number of connections, Get the value of the current load average
+            $othercount->{'sock'}->{'daemon'} = v4connection('daemon');
+            $othercount->{'sock'}->{'client'} = v4connection('client');
+            $othercount->{'load'} = loadaverages();
+
+            # date       time        total incoming   active deferred  hold bounced smtpd/smtp local/remote load
+            # 2018-02-02 18:30:22    46690        2    41534     5154    21    1372    3/376      2/255     8.35
+            printf("%s %s ",       $timestamp0->ymd('-'), $timestamp0->hms(':'));
+            printf("%8d %8d %8d ", $mailqueues, $queuecount->{'incoming'}, $queuecount->{'active'});
+            printf("%8d %8d %7d ", $queuecount->{'deferred'}, $queuecount->{'hold'}, $queuecount->{'bounce'});
+            printf("%9s ",   $othercount->{'proc'}->{'daemon'}.'/'.$othercount->{'proc'}->{'client'});
+            printf("%9s ",   $othercount->{'sock'}->{'daemon'}.'/'.$othercount->{'sock'}->{'client'});
+            printf("%6.2f ", $othercount->{'load'});
+            printf("%12s",   int($othercount->{'mems'}->{'vsz'} / 1024).'/'.int($othercount->{'mems'}->{'rss'} / 1024));
+            printf("\n");
+
+            last     if $Command->r & $Options->{'once'};
+            last unless $Command->stdout;
+            sleep($Setting->{'wait'});
+
+            next unless length $legendtext;
+            next unless $Command->stderr;
+            next unless $havelooped % 30 == 0;
+            print STDERR $legendtext."\n";
+        }
+        exit(0);
+    }
+
+    if( $smtpdaemon eq 'opensmtpd' ) {
+        #   ___                   ____  __  __ _____ ____  ____  
+        #  / _ \ _ __   ___ _ __ / ___||  \/  |_   _|  _ \|  _ \ 
+        # | | | | '_ \ / _ \ '_ \\___ \| |\/| | | | | |_) | | | |
+        # | |_| | |_) |  __/ | | |___) | |  | | | | |  __/| |_| |
+        #  \___/| .__/ \___|_| |_|____/|_|  |_| |_| |_|   |____/ 
+        #       |_|                                              
+        #   - Envelope ID.
+        #   - Address family of the client which enqueued the mail.
+        #   - Type of delivery: one of "mta", "mda" or "bounce".
+        #   - Various flags on the envelope.
+        #   - Sender address (return path).
+        #   - The original recipient address.
+        #   - The destination address.
+        #   - Time of creation.
+        #   - Time of expiration.
+        #   - Time of last delivery or relaying attempt.
+        #   - Number of delivery or relaying attempts.
+        #   - Current runstate: either "pending" or "inflight" if smtpd(8) is running, or "offline"
+        #     otherwise.
+        #   - Delay in seconds before the next attempt if pending, or time elapsed if currently running.
+        #     This field is blank if smtpd(8) is not running.
+        #   - Error string for the last failed delivery or relay attempt.
+        my $countusing = '/bin/ls -1f ';
+        my $daemonhome = '/var/spool/smtpd';
+        my @queueindex = (qw|incoming queue purge offline|);
+
+        SPOOL: while(1) {
+            # Check the spool directory
+            last unless -d $daemonhome;
+            last unless -r $daemonhome;
+            last unless -x $daemonhome;
+
+            for my $e ( @queueindex ) {
+                # Check each queue directory
+                last SPOOL unless -d $daemonhome.'/'.$e;
+                last SPOOL unless -r $daemonhome.'/'.$e;
+                last SPOOL unless -x $daemonhome.'/'.$e;
+            }
+            $executable = 1;
+            last;
+        }
+        $Command->e(sprintf("Cannot read %s", $daemonhome)) unless $executable;
+
+        while(1) {
+            # Print values on the terminal continuously stepping by 60 seconds when STDOUT and
+            # STDERR are available.
+            if( length($legendtext) == 0 && $Command->stderr ) {
+                # Legend text for values of OpenSMTPD
+                $legendtext .= sprintf("%10s %8s ",    'Date', 'Time');
+                $legendtext .= sprintf("%8s %8s %8s ", 'Total', 'Incoming', 'Queue');
+                $legendtext .= sprintf("%8s %6s ",     'Purge', 'Offline');
+                $legendtext .= sprintf("%9s %9s %6s ", 'Proc:d/q', 'Conn:L/R', 'Load');
+                $legendtext .= sprintf("%12s",         'MB:vsz/rss');
+                print STDERR $legendtext."\n";
+            }
+
+            # Initialize each value for the loop
+            $timestamp0 = Time::Piece->new;
+            $mailqueues = 0;
+            $othercount->{'mems'}->{'vsz'} = 0;
+            $othercount->{'mems'}->{'rss'} = 0;
+            $othercount->{'proc'}->{'daemon'} = 0;
+            $othercount->{'proc'}->{'queues'} = 0;
+            $havelooped++;
+
+            for my $e ( @queueindex ) {
+                # Count the number of files in each queue directory
+                if( $e eq 'queue' ) {
+                    # /var/spool/smptd/queue have sub directories
+                    $thecommand = sprintf("find %s/%s -type f -name 'message' | wc -l %s", $daemonhome, $e, $redirectto);
+
+                } else {
+                    # Directories except /var/spool/smtpd/* have no sub directories
+                    $thecommand = sprintf("find %s/%s -type f | wc -l %s", $daemonhome, $e, $redirectto);
+                }
+                my $v = int qx|$thecommand| || 0;
+
+                $mailqueues += $v if $e =~ /\A(?:queue|incoming|temporary)/;
+                $queuecount->{ $e } = $v;
+            }
+
+            # Count the number of daemon processes, memory
+            for my $e ( split "\n", qx|$processcmd h -u smtpd -O vsz,rss| ) {
+                # Read each line of ps(1) command
+                chomp $e; $e =~ y/ / /s;
+                my $v = [split(' ', $e)];
+                $othercount->{'mems'}->{'vsz'}    += int $v->[1];
+                $othercount->{'mems'}->{'rss'}    += int $v->[2];
+                $othercount->{'proc'}->{'daemon'} += 1;
+            }
+
+            # Count the number of queue processes, memory
+            for my $e ( split "\n", qx|$processcmd h -u smtpq -O vsz,rss| ) {
+                # Read each line of ps(1) command
+                chomp $e; $e =~ y/ / /s;
+                my $v = [split(' ', $e)];
+                $othercount->{'mems'}->{'vsz'}    += int $v->[1];
+                $othercount->{'mems'}->{'rss'}    += int $v->[2];
+                $othercount->{'proc'}->{'queues'} += 1;
+            }
+
+            # Count the number of connections, Get the value of the current load average
+            $othercount->{'sock'}->{'daemon'} = v4connection('daemon');
+            $othercount->{'sock'}->{'queues'} = v4connection('client');
+            $othercount->{'load'} = loadaverages();
+
+            #       Date     Time    Total Incoming    Queue    Purge Offline  Proc:d/q  Conn:L/R   Load   MB:vsz/rss
+            # 2018-02-02 18:30:22        4        0        4        0       0       5/1       0/0   0.18       252/25
+            printf("%s %s ",       $timestamp0->ymd('-'), $timestamp0->hms(':'));
+            printf("%8d %8d %8d ", $mailqueues, $queuecount->{'incoming'}, $queuecount->{'queue'});
+            printf("%8d %7d ",     $queuecount->{'purge'}, $queuecount->{'offline'});
+            printf("%9s ",   $othercount->{'proc'}->{'daemon'}.'/'.$othercount->{'proc'}->{'queues'});
+            printf("%9s ",   $othercount->{'sock'}->{'daemon'}.'/'.$othercount->{'sock'}->{'queues'});
+            printf("%6.2f ", $othercount->{'load'});
+            printf("%12s",   int($othercount->{'mems'}->{'vsz'} / 1024).'/'.int($othercount->{'mems'}->{'rss'} / 1024));
+            printf("\n");
+
+            last     if $Command->r & $Options->{'once'};
+            last unless $Command->stdout;
+            sleep($Setting->{'wait'});
+
+            next unless length $legendtext;
+            next unless $Command->stderr;
+            next unless $havelooped % 30 == 0;
+            print STDERR $legendtext."\n";
+        }
+        exit(0);
+    }
+
+    if( $smtpdaemon eq 'exim' ) {
+        # Exim4
+        $Command->e('Exim is not supported yet');
+    }
+}
+
+sub detectdaemon {
+    return 'sendmail'  if -f '/var/run/sendmail.pid';
+    return 'postfix'   if -f '/var/spool/postfix/pid/master.pid';
+    return 'opensmtpd' if -f '/run/smtpd.pid';
+    return 'exim'      if -f '/var/spool/exim/exim-daemon.pid';
+    return '';
+}
+
+sub loadaverages {
+    my $f = '/proc/loadavg';
+    my $v = -e $f
+            ? qx(cat $f | cut -d' ' -f1 | tr -d ' ')
+            : qx/uptime | awk '{ print \$(NF-2) }' | tr -d ','/;
+    chomp $v;
+    return $v;
+}
+
+sub v4connection {
+    my $f = shift || 'daemon';
+    my $x = '/usr/sbin/ss'; $x = '/usr/bin/netstat' unless -x $x; return 0 unless -x $x;
+    my $v = $f eq 'daemon'
+                ? qx($x -4t | tr -s ' ' | cut -d' ' -f4 | grep :smtp | wc -l)
+                : qx($x -4t | tr -s ' ' | cut -d' ' -f5 | grep :smtp | wc -l);
+    return int($v);
+}
+
+sub parseoptions {
+    my $r = 0;  # Run mode value
+    my $p = {}; # Parsed options
+    my $o = [
+        'once|1',       # Print the number of queues and exit
+        'wait|w=n'      # Sleep n seconds
+    ];
+
+    Getopt::Long::GetOptions($p, 'verbose|v+', @$o,
+        'data'    => sub { print <DATA>; exit 0; },
+        'help'    => sub { help(); exit 0; },
+        'version' => sub { printf(STDERR "%s\n", $Version); exit 0; },
+    );
+
+    if( $p->{'wait'} && $p->{'wait'} =~ /\A\d+\z/ ) {
+        # Sleep <n> seconds
+        $Setting->{'wait'} = $p->{'wait'};
+    }
+
+    for my $e ( keys %$Default ) {
+        $Setting->{ $e } = $Default->{ $e } unless exists $Setting->{ $e };
+    }
+
+    $r |= $Options->{'once'} if $p->{'once'};
+    $r |= $Options->{'exec'};
+
+    $Command->v($p->{'verbose'});
+    $Command->p(sprintf("Debug level = %d", $Command->v), 1);
+    $Command->p(sprintf("Run mode = %d", $r), 1);
+
+    return $r;
+}
+
+sub help {
+    printf(STDERR "A command for displaying the number of email queues like the iostat(8)\n");
+    printf(STDERR "%s [OPTIONS]\n", $0);
+    printf(STDERR "  --once, -1          : Print the current queue status and exit\n");
+    printf(STDERR "  --wait, -w <n>      : Wait <n> seconds before getting the next queue status\n");
+    printf(STDERR "                        The default is 60 (seconds)\n");
+    printf(STDERR "\n");
+    printf(STDERR '  --help              : Help screen'."\n");
+    printf(STDERR '  --version           : Print the version number'."\n");
+    printf(STDERR '  -v, --verbose       : Verbose mode'."\n");
+    printf(STDERR "\n");
+}
+
+__DATA__
