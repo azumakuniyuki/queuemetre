@@ -227,7 +227,7 @@ if( $Command->r & $Options->{'exec'} ) {
             for my $e ( split "\n", qx($processcmd->{'exec'} | grep sendmail) ) {
                 # Read each line of ps(1) command
                 chomp $e; $e =~ y/ / /s;
-                my $v = [split(' ', $e)];
+                my $v = [split(' ', $e, 7)];
 
                 # Skip if the line is "   PID   TT  STAT      TIME COMMAND"
                 next if index($v->[0], 'PID') > -1;
@@ -346,7 +346,7 @@ if( $Command->r & $Options->{'exec'} ) {
             for my $e ( split "\n", qx|$processcmd->{'exec'}| ) {
                 # Read each line of ps(1) command
                 chomp $e; $e =~ y/ / /s;
-                my $v = [split(' ', $e)];
+                my $v = [split(' ', $e, 7)];
 
                 # Skip if the line is "   PID   TT  STAT      TIME COMMAND"
                 next if index($v->[0], 'PID') > -1;
@@ -411,6 +411,7 @@ if( $Command->r & $Options->{'exec'} ) {
         my $countusing = '/bin/ls -1f ';
         my $daemonhome = '/var/spool/smtpd';
         my @queueindex = (qw|incoming queue purge offline|);
+        my $queueproc1 = '';
 
         SPOOL: while(1) {
             # Check the spool directory
@@ -432,9 +433,11 @@ if( $Command->r & $Options->{'exec'} ) {
         $processcmd->{'args'} = 'h -O vsz,rss';
         $processcmd->{'user'} = 'smtpd';
         $processcmd->{'exec'} = sprintf("%s %s -%s %s", $processcmd->{'path'}, $processcmd->{'args'}, $processcmd->{'uopt'}, $processcmd->{'user'});
+        $queueproc1           = sprintf("%s %s -%s %s", $processcmd->{'path'}, $processcmd->{'args'}, $processcmd->{'uopt'}, 'smtpq');
 
         $Command->p(sprintf("Command for counting queues = %s %s", $countusing, $daemonhome), 3);
         $Command->p(sprintf("Command for counting processes = %s", $processcmd->{'exec'}), 3);
+        $Command->p(sprintf("Command for counting processes = %s", $queueproc1), 3);
 
         while(1) {
             # Print values on the terminal continuously stepping by 60 seconds when STDOUT and
@@ -478,7 +481,7 @@ if( $Command->r & $Options->{'exec'} ) {
             for my $e ( split "\n", qx|$processcmd->{'exec'}| ) {
                 # Read each line of ps(1) command
                 chomp $e; $e =~ y/ / /s;
-                my $v = [split(' ', $e)];
+                my $v = [split(' ', $e, 3)];
 
                 # Skip if the line is "   PID   TT  STAT      TIME COMMAND"
                 next if index($v->[0], 'PID') > -1;
@@ -489,10 +492,14 @@ if( $Command->r & $Options->{'exec'} ) {
             }
 
             # Count the number of queue processes, memory
-            for my $e ( split "\n", qx|$processcmd h -u smtpq -O vsz,rss| ) {
+            for my $e ( split "\n", qx|$queueproc1| ) {
                 # Read each line of ps(1) command
                 chomp $e; $e =~ y/ / /s;
-                my $v = [split(' ', $e)];
+                my $v = [split(' ', $e, 3)];
+
+                # Skip if the line is "   PID   TT  STAT      TIME COMMAND"
+                next if index($v->[0], 'PID') > -1;
+
                 $othercount->{'mems'}->{'vsz'}    += int $v->[1];
                 $othercount->{'mems'}->{'rss'}    += int $v->[2];
                 $othercount->{'proc'}->{'queues'} += 1;
