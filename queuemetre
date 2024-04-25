@@ -94,7 +94,7 @@ use warnings;
 use Getopt::Long qw/:config posix_default no_ignore_case bundling auto_help/;
 use File::Basename qw/basename/;
 
-my $Version = '1.0.0';
+my $Version = '1.0.1';
 my $Setting = {};
 my $Default = { 'wait' => 60 };
 my $Options = {
@@ -110,6 +110,7 @@ if( $Command->r & $Options->{'exec'} ) {
     my $executable = 0;
     my $timestamp0 = undef;
     my $redirectto = '2> /dev/null';
+    my $processcmd = { 'path' => '', 'args' => '', 'user' => '', 'uopt' => 'u', 'exec' => '' };
     my $thecommand = '';
     my $legendtext = '';
     my $mailqueues = 0; # The number of email queues
@@ -122,8 +123,20 @@ if( $Command->r & $Options->{'exec'} ) {
         'load' => 0,
     };
 
-    my $processcmd = '/usr/bin/ps';
-    $Command->e('/usr/bin/ps is not available')                unless -x $processcmd;
+    for my $e (qw|/usr/bin /bin|) {
+        # Find the "ps" command
+        my $f = sprintf("%s/ps", $e); next unless -x $f;
+
+        # /bin/ps (such as macOS) does not have "-u" switch
+        my $x = sprintf("%s h -u root > /dev/null 2&>1", $f); qx|$x|;
+        my $p = int $?; $processcmd->{'uopt'} = 'U' unless $p == 0;
+        $Command->p('Test the ps command(1) = '.$x, 4);
+        $Command->p('Test the ps command(2) = '.$p, 4);
+
+        $processcmd->{'path'} = $f;
+        last;
+    }
+    $Command->e('ps command is not available') unless -x $processcmd->{'path'};
 
     # Count the number of queues
     if( $smtpdaemon eq 'sendmail' ) {
@@ -145,6 +158,10 @@ if( $Command->r & $Options->{'exec'} ) {
             last;
         }
         $Command->e(sprintf("Cannot execute %s", $countusing)) unless $executable;
+
+        $processcmd->{'args'} = 'xh -O vsz,rss';
+        $processcmd->{'user'} = 'root';
+        $processcmd->{'exec'} = sprintf("%s %s -%s %s", $processcmd->{'path'}, $processcmd->{'args'}, $processcmd->{'uopt'}, $processcmd->{'user'});
 
         while(1) {
             # Print values on the terminal continuously stepping by 60 seconds when STDOUT and
@@ -203,7 +220,7 @@ if( $Command->r & $Options->{'exec'} ) {
             }
 
             # Count the number of processes, memory
-            for my $e ( split "\n", qx($processcmd xh -u root -O vsz,rss | grep sendmail) ) {
+            for my $e ( split "\n", qx($processcmd->{'exec'} | grep sendmail) ) {
                 # Read each line of ps(1) command
                 chomp $e; $e =~ y/ / /s;
                 my $v = [split(' ', $e)];
@@ -272,6 +289,10 @@ if( $Command->r & $Options->{'exec'} ) {
         }
         $Command->e(sprintf("Cannot read %s", $daemonhome)) unless $executable;
 
+        $processcmd->{'args'} = 'h -O vsz,rss';
+        $processcmd->{'user'} = 'postfix';
+        $processcmd->{'exec'} = sprintf("%s %s -%s %s", $processcmd->{'path'}, $processcmd->{'args'}, $processcmd->{'uopt'}, $processcmd->{'user'});
+
         while(1) {
             # Print values on the terminal continuously stepping by 60 seconds when STDOUT and
             # STDERR are available.
@@ -311,10 +332,14 @@ if( $Command->r & $Options->{'exec'} ) {
             }
 
             # Count the number of processes, memory
-            for my $e ( split "\n", qx|$processcmd h -u postfix -O vsz,rss| ) {
+            for my $e ( split "\n", qx|$processcmd->{'exec'}| ) {
                 # Read each line of ps(1) command
                 chomp $e; $e =~ y/ / /s;
                 my $v = [split(' ', $e)];
+
+                # Skip if the line is "   PID   TT  STAT      TIME COMMAND"
+                next if index($v->[0], 'PID') > -1;
+
                 $othercount->{'mems'}->{'vsz'}    += int $v->[1];
                 $othercount->{'mems'}->{'rss'}    += int $v->[2];
                 $othercount->{'proc'}->{'daemon'} += 1 if $v->[6] =~ /\Asmtpd/;
@@ -393,6 +418,10 @@ if( $Command->r & $Options->{'exec'} ) {
         }
         $Command->e(sprintf("Cannot read %s", $daemonhome)) unless $executable;
 
+        $processcmd->{'args'} = 'h -O vsz,rss';
+        $processcmd->{'user'} = 'smtpd';
+        $processcmd->{'exec'} = sprintf("%s %s -%s %s", $processcmd->{'path'}, $processcmd->{'args'}, $processcmd->{'uopt'}, $processcmd->{'user'});
+
         while(1) {
             # Print values on the terminal continuously stepping by 60 seconds when STDOUT and
             # STDERR are available.
@@ -432,7 +461,7 @@ if( $Command->r & $Options->{'exec'} ) {
             }
 
             # Count the number of daemon processes, memory
-            for my $e ( split "\n", qx|$processcmd h -u smtpd -O vsz,rss| ) {
+            for my $e ( split "\n", qx|$processcmd->{'exec'}| ) {
                 # Read each line of ps(1) command
                 chomp $e; $e =~ y/ / /s;
                 my $v = [split(' ', $e)];
