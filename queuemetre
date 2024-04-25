@@ -122,6 +122,7 @@ if( $Command->r & $Options->{'exec'} ) {
         'mems' => { 'vsz'    => 0, 'rss'    => 0 },
         'load' => 0,
     };
+    $Command->p(sprintf("The SMTP daemon = %s", $smtpdaemon), 1);
 
     for my $e (qw|/usr/bin /bin|) {
         # Find the "ps" command
@@ -162,6 +163,9 @@ if( $Command->r & $Options->{'exec'} ) {
         $processcmd->{'args'} = 'xh -O vsz,rss';
         $processcmd->{'user'} = 'root';
         $processcmd->{'exec'} = sprintf("%s %s -%s %s", $processcmd->{'path'}, $processcmd->{'args'}, $processcmd->{'uopt'}, $processcmd->{'user'});
+
+        $Command->p(sprintf("Command for counting queues = %s %s", $countusing, $commandarg), 3);
+        $Command->p(sprintf("Command for counting processes = %s", $processcmd->{'exec'}), 3);
 
         while(1) {
             # Print values on the terminal continuously stepping by 60 seconds when STDOUT and
@@ -297,6 +301,9 @@ if( $Command->r & $Options->{'exec'} ) {
         $processcmd->{'user'} = 'postfix';
         $processcmd->{'exec'} = sprintf("%s %s -%s %s", $processcmd->{'path'}, $processcmd->{'args'}, $processcmd->{'uopt'}, $processcmd->{'user'});
 
+        $Command->p(sprintf("Command for counting queues = %s %s", $countusing, $daemonhome), 3);
+        $Command->p(sprintf("Command for counting processes = %s", $processcmd->{'exec'}), 3);
+
         while(1) {
             # Print values on the terminal continuously stepping by 60 seconds when STDOUT and
             # STDERR are available.
@@ -425,6 +432,9 @@ if( $Command->r & $Options->{'exec'} ) {
         $processcmd->{'args'} = 'h -O vsz,rss';
         $processcmd->{'user'} = 'smtpd';
         $processcmd->{'exec'} = sprintf("%s %s -%s %s", $processcmd->{'path'}, $processcmd->{'args'}, $processcmd->{'uopt'}, $processcmd->{'user'});
+
+        $Command->p(sprintf("Command for counting queues = %s %s", $countusing, $daemonhome), 3);
+        $Command->p(sprintf("Command for counting processes = %s", $processcmd->{'exec'}), 3);
 
         while(1) {
             # Print values on the terminal continuously stepping by 60 seconds when STDOUT and
@@ -575,6 +585,7 @@ sub parseoptions {
     $r |= $Options->{'exec'};
 
     $Command->v($p->{'verbose'});
+    $Command->p(sprintf("%s %s", basename($0), $Version), 1);
     $Command->p(sprintf("Debug level = %d", $Command->v), 1);
     $Command->p(sprintf("Run mode = %d", $r), 1);
 
