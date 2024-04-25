@@ -4,10 +4,11 @@ RELEASE NOTES for queuemetre - A command for getting the number of email queues
 
 v1.0.1
 ---------------------------------------------------------------------------------------------------
-- release: ""
+- release: "Thu, 25 Apr 2024 20:22:22 +0900 (JST)"
 - version: "1.0.1"
 - changes:
   - Code improvement on the `ps` command and its option
+  - Tiny code improvements
 
 v1.0.0
 ---------------------------------------------------------------------------------------------------
