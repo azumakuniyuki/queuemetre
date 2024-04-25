@@ -224,6 +224,10 @@ if( $Command->r & $Options->{'exec'} ) {
                 # Read each line of ps(1) command
                 chomp $e; $e =~ y/ / /s;
                 my $v = [split(' ', $e)];
+
+                # Skip if the line is "   PID   TT  STAT      TIME COMMAND"
+                next if index($v->[0], 'PID') > -1;
+
                 $othercount->{'mems'}->{'vsz'} += int $v->[1];
                 $othercount->{'mems'}->{'rss'} += int $v->[2];
 
@@ -465,6 +469,10 @@ if( $Command->r & $Options->{'exec'} ) {
                 # Read each line of ps(1) command
                 chomp $e; $e =~ y/ / /s;
                 my $v = [split(' ', $e)];
+
+                # Skip if the line is "   PID   TT  STAT      TIME COMMAND"
+                next if index($v->[0], 'PID') > -1;
+
                 $othercount->{'mems'}->{'vsz'}    += int $v->[1];
                 $othercount->{'mems'}->{'rss'}    += int $v->[2];
                 $othercount->{'proc'}->{'daemon'} += 1;
