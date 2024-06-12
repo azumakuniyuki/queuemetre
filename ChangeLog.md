@@ -2,6 +2,15 @@ RELEASE NOTES for queuemetre - A command for getting the number of email queues
 ===================================================================================================
 - "https://github.com/azumakuniyuki/queuemetre"
 
+v1.0.3
+---------------------------------------------------------------------------------------------------
+- release: "Wed, 12 Jun 2024 17:33:22 +0900 (JST)"
+- version: "1.0.3"
+- changes:
+  - DRY: Tiny code improvement
+  - Add and call currenttimes(), systemvalues() subroutines
+  - Print the list of supported MTAs at `--help` screen
+
 v1.0.2
 ---------------------------------------------------------------------------------------------------
 - release: "Wed, 12 Jun 2024 16:53:42 +0900 (JST)"
