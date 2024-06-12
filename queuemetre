@@ -583,14 +583,13 @@ if( $Command->r & $Options->{'exec'} ) {
             $othercount->{'proc'}->{'queues'} = 0;
             $havelooped++;
 
-            # /var/spool/dma/Me072e.56101f910e30
-            # /var/spool/dma/Qe0730.564869fc1e30
-            # /var/spool/dma/Qe0722.55a377513e30
-            # ...
-            # Count the number of files in each queue directory
 
             for my $e ( @queueindex ) {
                 # Count the number of files in /var/spool/dma
+                # /var/spool/dma/Me072e.56101f910e30
+                # /var/spool/dma/Qe0730.564869fc1e30
+                # /var/spool/dma/Qe0722.55a377513e30
+                # ...
                 if( $e eq 'queue' ) {
                     # Active queue file starts with "Qe" is created within 5 minutes
                     $thecommand = sprintf("find %s -type f -name 'Qe*' -size 1 -cmin -5 | wc -l %s", $daemonhome, $redirectto);
