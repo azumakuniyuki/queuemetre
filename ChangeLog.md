@@ -2,6 +2,13 @@ RELEASE NOTES for queuemetre - A command for getting the number of email queues
 ===================================================================================================
 - "https://github.com/azumakuniyuki/queuemetre"
 
+v1.0.5
+---------------------------------------------------------------------------------------------------
+- release: "Wed, 12 Jun 2024 22:00:00 +0900 (JST)"
+- version: "1.0.5"
+- changes:
+  - Fix the first character of the queue file in DMA:Dragonfly Mail Agent
+
 v1.0.4
 ---------------------------------------------------------------------------------------------------
 - release: "Wed, 12 Jun 2024 18:32:08 +0900 (JST)"
