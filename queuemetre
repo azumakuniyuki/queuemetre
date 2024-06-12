@@ -94,7 +94,7 @@ use warnings;
 use Getopt::Long qw/:config posix_default no_ignore_case bundling auto_help/;
 use File::Basename qw/basename/;
 
-my $Version = '1.0.2';
+my $Version = '1.0.3';
 my $Setting = {};
 my $Default = { 'wait' => 60 };
 my $Options = {
@@ -172,11 +172,10 @@ if( $Command->r & $Options->{'exec'} ) {
             # STDERR are available.
             if( length($legendtext) == 0 && $Command->stderr ) {
                 # Legend text for values of Postfix
-                $legendtext .= sprintf("%10s %8s ",    'Date', 'Time');
+                $legendtext .= currenttimes('legend');
                 $legendtext .= sprintf("%8s %8s %8s ", 'Total', 'MTA', 'MSA');
                 $legendtext .= sprintf("%8s %5s %6s ", 'Deferred', 'Lost', 'Quarantined');
-                $legendtext .= sprintf("%9s %9s %6s ", 'Proc:d/c', 'Conn:L/R', 'Load');
-                $legendtext .= sprintf("%12s",         'MB:vsz/rss');
+                $legendtext .= systemvalues('legend');
                 print STDERR $legendtext."\n";
             }
 
@@ -248,13 +247,10 @@ if( $Command->r & $Options->{'exec'} ) {
 
             #       Date     Time    Total      MTA      MSA Deferred  Lost Quarantined  Proc:d/c  Conn:L/R   Load   MB:vsz/rss
             # 2018-02-02 18:30:22       22       20        0        2     0           1       2/1       0/1   0.02        269/2
-            printf("%s %s ",       $timestamp0->ymd('-'), $timestamp0->hms(':'));
+            currenttimes($timestamp0);
             printf("%8d %8d %8d ", $mailqueues, $queuecount->{'mta'}, $queuecount->{'msa'});
             printf("%8d %5d %11d ",$queuecount->{'deferred'}, $queuecount->{'lost'}, $queuecount->{'quarantined'});
-            printf("%9s ",   $othercount->{'proc'}->{'daemon'}.'/'.$othercount->{'proc'}->{'client'});
-            printf("%9s ",   $othercount->{'sock'}->{'daemon'}.'/'.$othercount->{'sock'}->{'client'});
-            printf("%6.2f ", $othercount->{'load'});
-            printf("%12s",   int($othercount->{'mems'}->{'vsz'} / 1024).'/'.int($othercount->{'mems'}->{'rss'} / 1024));
+            systemvalues($othercount);
             printf("\n");
 
             last     if $Command->r & $Options->{'once'};
@@ -309,11 +305,10 @@ if( $Command->r & $Options->{'exec'} ) {
             # STDERR are available.
             if( length($legendtext) == 0 && $Command->stderr ) {
                 # Legend text for values of Postfix
-                $legendtext .= sprintf("%10s %8s ",    'Date', 'Time');
+                $legendtext .= currenttimes('legend');
                 $legendtext .= sprintf("%8s %8s %8s ", 'Total', 'Incoming', 'Active');
                 $legendtext .= sprintf("%8s %8s %7s ", 'Deferred', 'Hold', 'Bounced');
-                $legendtext .= sprintf("%9s %9s %6s ", 'Proc:d/c', 'Conn:L/R', 'Load');
-                $legendtext .= sprintf("%12s",         'MB:vsz/rss');
+                $legendtext .= systemvalues('legend');
                 print STDERR $legendtext."\n";
             }
 
@@ -364,13 +359,10 @@ if( $Command->r & $Options->{'exec'} ) {
 
             # date       time        total incoming   active deferred  hold bounced smtpd/smtp local/remote load
             # 2018-02-02 18:30:22    46690        2    41534     5154    21    1372    3/376      2/255     8.35
-            printf("%s %s ",       $timestamp0->ymd('-'), $timestamp0->hms(':'));
+            currentvalue($timestamp0);
             printf("%8d %8d %8d ", $mailqueues, $queuecount->{'incoming'}, $queuecount->{'active'});
             printf("%8d %8d %7d ", $queuecount->{'deferred'}, $queuecount->{'hold'}, $queuecount->{'bounce'});
-            printf("%9s ",   $othercount->{'proc'}->{'daemon'}.'/'.$othercount->{'proc'}->{'client'});
-            printf("%9s ",   $othercount->{'sock'}->{'daemon'}.'/'.$othercount->{'sock'}->{'client'});
-            printf("%6.2f ", $othercount->{'load'});
-            printf("%12s",   int($othercount->{'mems'}->{'vsz'} / 1024).'/'.int($othercount->{'mems'}->{'rss'} / 1024));
+            systemvalues($othercount);
             printf("\n");
 
             last     if $Command->r & $Options->{'once'};
@@ -411,7 +403,6 @@ if( $Command->r & $Options->{'exec'} ) {
         my $countusing = '/bin/ls -1f ';
         my $daemonhome = '/var/spool/smtpd';
         my @queueindex = (qw|incoming queue purge offline|);
-        my $queueproc1 = '';
 
         SPOOL: while(1) {
             # Check the spool directory
@@ -433,7 +424,7 @@ if( $Command->r & $Options->{'exec'} ) {
         $processcmd->{'args'} = 'h -O vsz,rss';
         $processcmd->{'user'} = 'smtpd';
         $processcmd->{'exec'} = sprintf("%s %s -%s %s", $processcmd->{'path'}, $processcmd->{'args'}, $processcmd->{'uopt'}, $processcmd->{'user'});
-        $queueproc1           = sprintf("%s %s -%s %s", $processcmd->{'path'}, $processcmd->{'args'}, $processcmd->{'uopt'}, 'smtpq');
+        my $queueproc1        = sprintf("%s %s -%s %s", $processcmd->{'path'}, $processcmd->{'args'}, $processcmd->{'uopt'}, 'smtpq');
 
         $Command->p(sprintf("Command for counting queues = %s %s", $countusing, $daemonhome), 3);
         $Command->p(sprintf("Command for counting processes = %s", $processcmd->{'exec'}), 3);
@@ -444,11 +435,10 @@ if( $Command->r & $Options->{'exec'} ) {
             # STDERR are available.
             if( length($legendtext) == 0 && $Command->stderr ) {
                 # Legend text for values of OpenSMTPD
-                $legendtext .= sprintf("%10s %8s ",    'Date', 'Time');
+                $legendtext .= currenttimes('legend');
                 $legendtext .= sprintf("%8s %8s %8s ", 'Total', 'Incoming', 'Queue');
                 $legendtext .= sprintf("%8s %6s ",     'Purge', 'Offline');
-                $legendtext .= sprintf("%9s %9s %6s ", 'Proc:d/q', 'Conn:L/R', 'Load');
-                $legendtext .= sprintf("%12s",         'MB:vsz/rss');
+                $legendtext .= systemvalues('legend');
                 print STDERR $legendtext."\n";
             }
 
@@ -512,13 +502,10 @@ if( $Command->r & $Options->{'exec'} ) {
 
             #       Date     Time    Total Incoming    Queue    Purge Offline  Proc:d/q  Conn:L/R   Load   MB:vsz/rss
             # 2018-02-02 18:30:22        4        0        4        0       0       5/1       0/0   0.18       252/25
-            printf("%s %s ",       $timestamp0->ymd('-'), $timestamp0->hms(':'));
+            currenttimes($timestamp0);
             printf("%8d %8d %8d ", $mailqueues, $queuecount->{'incoming'}, $queuecount->{'queue'});
             printf("%8d %7d ",     $queuecount->{'purge'}, $queuecount->{'offline'});
-            printf("%9s ",   $othercount->{'proc'}->{'daemon'}.'/'.$othercount->{'proc'}->{'queues'});
-            printf("%9s ",   $othercount->{'sock'}->{'daemon'}.'/'.$othercount->{'sock'}->{'queues'});
-            printf("%6.2f ", $othercount->{'load'});
-            printf("%12s",   int($othercount->{'mems'}->{'vsz'} / 1024).'/'.int($othercount->{'mems'}->{'rss'} / 1024));
+            systemvalues($othercount);
             printf("\n");
 
             last     if $Command->r & $Options->{'once'};
@@ -540,10 +527,10 @@ if( $Command->r & $Options->{'exec'} ) {
         # | |_| | | | (_| | (_| | (_) | | | |  _| | |_| |
         # |____/|_|  \__,_|\__, |\___/|_| |_|_| |_|\__, |
         #                  |___/                   |___/ 
+        # https://man.freebsd.org/cgi/man.cgi?query=dma
         my $countusing = '/bin/ls -1f ';
         my $daemonhome = '/var/spool/dma';
         my @queueindex = (qw|queue deferred|);
-        my $queueproc1 = '';
 
         SPOOL: while(1) {
             # Check the spool directory
@@ -557,7 +544,7 @@ if( $Command->r & $Options->{'exec'} ) {
 
         $processcmd->{'args'} = 'h -O vsz,rss';
         $processcmd->{'user'} = 'mail';
-        $queueproc1           = sprintf("%s %s -%s %s", $processcmd->{'path'}, $processcmd->{'args'}, $processcmd->{'uopt'}, $processcmd->{'user'});
+        my $queueproc1 = sprintf("%s %s -%s %s", $processcmd->{'path'}, $processcmd->{'args'}, $processcmd->{'uopt'}, $processcmd->{'user'});
 
         $Command->p(sprintf("Command for counting queues = %s %s", $countusing, $daemonhome), 3);
         $Command->p(sprintf("Command for counting processes = %s", $queueproc1), 3);
@@ -567,14 +554,14 @@ if( $Command->r & $Options->{'exec'} ) {
             # STDERR are available.
             if( length($legendtext) == 0 && $Command->stderr ) {
                 # Legend text for values of DMA: Dragonfly Mail Agent
-                $legendtext .= sprintf("%10s %8s ",    'Date', 'Time');
+                $legendtext .= currenttimes('legend');
                 $legendtext .= sprintf("%8s %8s %8s ", 'Total', 'Queue', 'Deferred');
-                $legendtext .= sprintf("%9s %9s %6s ", 'Proc:d/c', 'Conn:L/R', 'Load');
-                $legendtext .= sprintf("%12s",         'MB:vsz/rss');
+                $legendtext .= systemvalues('legend');
                 print STDERR $legendtext."\n";
             }
 
             # Initialize each value for the loop
+            # Note: the value of "daemon" is always 0 in DMA
             $timestamp0 = Time::Piece->new;
             $mailqueues = 0;
             $othercount->{'mems'}->{'vsz'} = 0;
@@ -582,7 +569,6 @@ if( $Command->r & $Options->{'exec'} ) {
             $othercount->{'proc'}->{'daemon'} = 0;
             $othercount->{'proc'}->{'queues'} = 0;
             $havelooped++;
-
 
             for my $e ( @queueindex ) {
                 # Count the number of files in /var/spool/dma
@@ -627,12 +613,9 @@ if( $Command->r & $Options->{'exec'} ) {
             # 2024-06-12 16:37:51       11        0       11      0/11       0/0   0.15        85/27
             # 2024-06-12 16:38:11       12        1       11      0/12       0/0   0.11        93/30
             # 2024-06-12 16:39:11       11        0       11      0/11       0/0   0.04        85/27
-            printf("%s %s ",       $timestamp0->ymd('-'), $timestamp0->hms(':'));
+            currenttimes($timestamp0);
             printf("%8d %8d %8d ", $mailqueues, $queuecount->{'queue'}, $queuecount->{'deferred'});
-            printf("%9s ",   $othercount->{'proc'}->{'daemon'}.'/'.$othercount->{'proc'}->{'queues'});
-            printf("%9s ",   $othercount->{'sock'}->{'daemon'}.'/'.$othercount->{'sock'}->{'queues'});
-            printf("%6.2f ", $othercount->{'load'});
-            printf("%12s",   int($othercount->{'mems'}->{'vsz'} / 1024).'/'.int($othercount->{'mems'}->{'rss'} / 1024));
+            systemvalues($othercount);
             printf("\n");
 
             last     if $Command->r & $Options->{'once'};
@@ -645,7 +628,6 @@ if( $Command->r & $Options->{'exec'} ) {
             print STDERR $legendtext."\n";
         }
         exit(0);
-        
     }
 
     if( $smtpdaemon eq 'exim' ) {
@@ -680,6 +662,39 @@ sub v4connection {
                 ? qx($x -4t | tr -s ' ' | cut -d' ' -f4 | grep :smtp | wc -l)
                 : qx($x -4t | tr -s ' ' | cut -d' ' -f5 | grep :smtp | wc -l);
     return int($v);
+}
+
+sub currenttimes {
+    my $v = shift;
+    my $r = ref $v;
+
+    if( $r eq 'Time::Piece' ) {
+        # The 1st argument is Time::Piece object
+        printf("%s %s ", $v->ymd('-'), $v->hms(':'));
+        return '';
+
+    } else {
+        # Returns the legend text
+        return sprintf("%10s %8s ", 'Date', 'Time');
+    }
+}
+
+sub systemvalues {
+    my $v = shift;
+    my $r = ref $v // '';
+
+    if( $r eq 'HASH' ) {
+        # Print each value of processes, the load, and memories.
+        printf("%9s ",   $v->{'proc'}->{'daemon'}.'/'.$v->{'proc'}->{'queues'});
+        printf("%9s ",   $v->{'sock'}->{'daemon'}.'/'.$v->{'sock'}->{'queues'});
+        printf("%6.2f ", $v->{'load'});
+        printf("%12s",   int($v->{'mems'}->{'vsz'} / 1024).'/'.int($v->{'mems'}->{'rss'} / 1024));
+        return '';
+
+    } else {
+        # Returns the legend text
+        return sprintf("%9s %9s %6s %12s", 'Proc:d/c', 'Conn:L/R', 'Load', 'MB:vsz/rss');
+    }
 }
 
 sub parseoptions {
@@ -726,6 +741,12 @@ sub help {
     printf(STDERR '  --help              : Help screen'."\n");
     printf(STDERR '  --version           : Print the version number'."\n");
     printf(STDERR '  -v, --verbose       : Verbose mode'."\n");
+    printf(STDERR "\n");
+    printf(STDERR "Supported MTA are the followings:\n");
+    printf(STDERR "  - Sendmail\n");
+    printf(STDERR "  - Postfix\n");
+    printf(STDERR "  - OpenSMTPD\n");
+    printf(STDERR "  - DMA: Dragonfly Mail Agent\n");
     printf(STDERR "\n");
 }
 
