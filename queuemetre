@@ -94,7 +94,7 @@ use warnings;
 use Getopt::Long qw/:config posix_default no_ignore_case bundling auto_help/;
 use File::Basename qw/basename/;
 
-my $Version = '1.0.3';
+my $Version = '1.0.4';
 my $Setting = {};
 my $Default = { 'wait' => 60 };
 my $Options = {
@@ -226,7 +226,7 @@ if( $Command->r & $Options->{'exec'} ) {
             for my $e ( split "\n", qx($processcmd->{'exec'} | grep sendmail) ) {
                 # Read each line of ps(1) command
                 chomp $e; $e =~ y/ / /s;
-                my $v = [split(' ', $e, 7)];
+                my $v = [split(' ', $e, 8)];
 
                 # Skip if the line is "   PID   TT  STAT      TIME COMMAND"
                 next if index($v->[0], 'PID') > -1;
@@ -341,7 +341,7 @@ if( $Command->r & $Options->{'exec'} ) {
             for my $e ( split "\n", qx|$processcmd->{'exec'}| ) {
                 # Read each line of ps(1) command
                 chomp $e; $e =~ y/ / /s;
-                my $v = [split(' ', $e, 7)];
+                my $v = [split(' ', $e, 8)];
 
                 # Skip if the line is "   PID   TT  STAT      TIME COMMAND"
                 next if index($v->[0], 'PID') > -1;
@@ -359,7 +359,7 @@ if( $Command->r & $Options->{'exec'} ) {
 
             # date       time        total incoming   active deferred  hold bounced smtpd/smtp local/remote load
             # 2018-02-02 18:30:22    46690        2    41534     5154    21    1372    3/376      2/255     8.35
-            currentvalue($timestamp0);
+            currenttimes($timestamp0);
             printf("%8d %8d %8d ", $mailqueues, $queuecount->{'incoming'}, $queuecount->{'active'});
             printf("%8d %8d %7d ", $queuecount->{'deferred'}, $queuecount->{'hold'}, $queuecount->{'bounce'});
             systemvalues($othercount);
@@ -448,7 +448,7 @@ if( $Command->r & $Options->{'exec'} ) {
             $othercount->{'mems'}->{'vsz'} = 0;
             $othercount->{'mems'}->{'rss'} = 0;
             $othercount->{'proc'}->{'daemon'} = 0;
-            $othercount->{'proc'}->{'queues'} = 0;
+            $othercount->{'proc'}->{'client'} = 0;
             $havelooped++;
 
             for my $e ( @queueindex ) {
@@ -471,7 +471,7 @@ if( $Command->r & $Options->{'exec'} ) {
             for my $e ( split "\n", qx|$processcmd->{'exec'}| ) {
                 # Read each line of ps(1) command
                 chomp $e; $e =~ y/ / /s;
-                my $v = [split(' ', $e, 3)];
+                my $v = [split(' ', $e, 4)];
 
                 # Skip if the line is "   PID   TT  STAT      TIME COMMAND"
                 next if index($v->[0], 'PID') > -1;
@@ -485,14 +485,14 @@ if( $Command->r & $Options->{'exec'} ) {
             for my $e ( split "\n", qx|$queueproc1| ) {
                 # Read each line of ps(1) command
                 chomp $e; $e =~ y/ / /s;
-                my $v = [split(' ', $e, 3)];
+                my $v = [split(' ', $e, 4)];
 
                 # Skip if the line is "   PID   TT  STAT      TIME COMMAND"
                 next if index($v->[0], 'PID') > -1;
 
                 $othercount->{'mems'}->{'vsz'}    += int $v->[1];
                 $othercount->{'mems'}->{'rss'}    += int $v->[2];
-                $othercount->{'proc'}->{'queues'} += 1;
+                $othercount->{'proc'}->{'client'} += 1;
             }
 
             # Count the number of connections, Get the value of the current load average
@@ -567,7 +567,7 @@ if( $Command->r & $Options->{'exec'} ) {
             $othercount->{'mems'}->{'vsz'} = 0;
             $othercount->{'mems'}->{'rss'} = 0;
             $othercount->{'proc'}->{'daemon'} = 0;
-            $othercount->{'proc'}->{'queues'} = 0;
+            $othercount->{'proc'}->{'client'} = 0;
             $havelooped++;
 
             for my $e ( @queueindex ) {
@@ -601,12 +601,12 @@ if( $Command->r & $Options->{'exec'} ) {
 
                 $othercount->{'mems'}->{'vsz'}    += int $v->[1];
                 $othercount->{'mems'}->{'rss'}    += int $v->[2];
-                $othercount->{'proc'}->{'queues'} += 1;
+                $othercount->{'proc'}->{'client'} += 1;
             }
 
             # Count the number of connections, Get the value of the current load average
             $othercount->{'sock'}->{'daemon'} = v4connection('daemon');
-            $othercount->{'sock'}->{'queues'} = v4connection('client');
+            $othercount->{'sock'}->{'client'} = v4connection('client');
             $othercount->{'load'} = loadaverages();
 
             #       Date     Time    Total    Queue Deferred  Proc:d/c  Conn:L/R   Load   MB:vsz/rss
@@ -685,8 +685,8 @@ sub systemvalues {
 
     if( $r eq 'HASH' ) {
         # Print each value of processes, the load, and memories.
-        printf("%9s ",   $v->{'proc'}->{'daemon'}.'/'.$v->{'proc'}->{'queues'});
-        printf("%9s ",   $v->{'sock'}->{'daemon'}.'/'.$v->{'sock'}->{'queues'});
+        printf("%9s ",   $v->{'proc'}->{'daemon'}.'/'.$v->{'proc'}->{'client'});
+        printf("%9s ",   $v->{'sock'}->{'daemon'}.'/'.$v->{'sock'}->{'client'});
         printf("%6.2f ", $v->{'load'});
         printf("%12s",   int($v->{'mems'}->{'vsz'} / 1024).'/'.int($v->{'mems'}->{'rss'} / 1024));
         return '';
