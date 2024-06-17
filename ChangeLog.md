@@ -2,6 +2,13 @@ RELEASE NOTES for queuemetre - A command for getting the number of email queues
 ===================================================================================================
 - "https://github.com/azumakuniyuki/queuemetre"
 
+v1.0.6
+---------------------------------------------------------------------------------------------------
+- release: "Mon, 17 Jun 2024 18:07:05 +0900 (JST)"
+- version: "1.0.6"
+- changes:
+  - Check the user owns the daemon process (OpenSMTPD)
+
 v1.0.5
 ---------------------------------------------------------------------------------------------------
 - release: "Wed, 12 Jun 2024 22:00:00 +0900 (JST)"
