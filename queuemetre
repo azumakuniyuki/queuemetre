@@ -529,6 +529,50 @@ if( $Command->r & $Options->{'exec'} ) {
         exit(0);
     }
 
+    if( $smtpdaemon eq 'qmail' ) {
+        # qmail or qmail clone or notqmail
+        #                        _ _ 
+        #   __ _ _ __ ___   __ _(_) |
+        #  / _` | '_ ` _ \ / _` | | |
+        # | (_| | | | | | | (_| | | |
+        #  \__, |_| |_| |_|\__,_|_|_|
+        #     |_|                    
+        #
+        # # /var/qmail/bin/qmail-qstat
+        # messages in queue: 1
+        # messages in queue but not yet preprocessed: 0
+        #
+        # cat /var/qmail/bin/qmail-qstat
+        # #!/bin/sh
+        # WARNING: This file was auto-generated. Do not edit!
+        # messfiles=`find /var/qmail/queue/mess/* -type f | wc -l`
+        # todofiles=`find /var/qmail/queue/todo -type f | wc -l`
+        # echo "messages in queue:" $messfiles
+        # echo "messages in queue but not yet preprocessed:" $todofiles
+        $Command->e('qmail is not supported yet');
+        my $countusing = '/var/qmail/bin/qmail-qstat';
+        my $daemonhome = '/var/qmail/queue';
+        my @queueindex = (qw|mess todo|);
+        my $privileges = (qw|qmaild qmaill qmailp qmailq qmailr qmails|);
+
+        SPOOL: while(1) {
+            # Check the spool directory
+            last unless -d $daemonhome;
+            last unless -r $daemonhome;
+            last unless -x $daemonhome;
+
+            for my $e ( @queueindex ) {
+                # Check each queue directory
+                last SPOOL unless -d $daemonhome.'/'.$e;
+                last SPOOL unless -r $daemonhome.'/'.$e;
+                last SPOOL unless -x $daemonhome.'/'.$e;
+            }
+            $executable = 1;
+            last;
+        }
+        $Command->e(sprintf("Cannot read %s", $daemonhome)) unless $executable;
+    }
+
     if( $smtpdaemon eq 'dragonfly' ) {
         #  ____                               __ _       
         # |  _ \ _ __ __ _  __ _  ___  _ __  / _| |_   _ 
@@ -651,6 +695,7 @@ sub detectdaemon {
     return 'postfix'   if -f '/var/spool/postfix/pid/master.pid';
     return 'opensmtpd' if -f '/run/smtpd.pid';
     return 'exim'      if -f '/var/spool/exim/exim-daemon.pid';
+    return 'qmail'     if -f '/var/qmail/queue/lock/tcpto';
 
     return 'dragonfly' if -f '/var/spool/dma/flush';
     return '';
