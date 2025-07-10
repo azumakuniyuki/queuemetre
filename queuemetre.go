@@ -11,6 +11,7 @@ package main
 import "os"
 import "fmt"
 import "github.com/alecthomas/kong"
+import "libsisimai.org/queuemetre/mta"
 
 const Version = "1.1.0"
 type parameters struct {
@@ -22,11 +23,9 @@ type commandArg struct {
 	Verbose uint `short:"v" type:"counter" help:"Verbose mode"`
 	Wait    uint `short:"w" help:"Wait <n> seconds before getting the next queue status"`
 }
-var Daemon = []string{"Postfix", "Sendmail"}
-var IsThis = make(map[string]func() bool, 2)
 
 func main() {
-	mta := ""
+	emx := ""
 	arg := &commandArg{}
 	ctx := kong.Parse(arg,
 		kong.Vars{"version": Version},
@@ -34,15 +33,16 @@ func main() {
 		kong.UsageOnError(),
 	)
 	if arg.Wait == 0 { arg.Wait = 60 }
+fmt.Printf("MTA = %s\n", mta.Daemon)
 
-	for _, e := range Daemon {
+	for _, e := range mta.Daemon {
 		fmt.Printf("Call %s\n", e)
-		if IsThis[e]() == true { mta = e; break }
+		if mta.IsThis[e]() == true { emx = e; break }
 	}
 
 
 
-	fmt.Printf("MTA = %#v\n", mta)
+	fmt.Printf("MTA = %#v\n", emx)
 	fmt.Printf("CTX = %#v\n", ctx)
 	fmt.Printf("ARG.Wait = %s\n", arg.Wait)
 
